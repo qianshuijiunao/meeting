@@ -40,13 +40,13 @@
         </nav>
 
         <main class="flex-grow p-4 pb-24 relative">
-            <!-- 加载遮罩 (优化后的策略) -->
+            <!-- 加载遮罩 -->
             <div id="loading-overlay" class="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-6 text-center">
                 <div class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent mb-4"></div>
                 <p class="text-slate-600 font-medium">正在安全同步云端数据库...</p>
                 <p class="text-slate-400 text-xs mt-2">首次加载连接全球节点可能较慢</p>
                 <button onclick="forceSkipLoading()" class="mt-8 text-blue-500 text-sm font-bold border border-blue-100 px-6 py-2 rounded-full hover:bg-blue-50 transition-colors">
-                    如果卡住，请点此强制进入
+                    跳过同步直接进入
                 </button>
             </div>
 
@@ -74,7 +74,7 @@
                     </form>
                 </div>
 
-                <!-- 成功卡片 (已报名后的弹窗) -->
+                <!-- 成功卡片 -->
                 <div id="success-box" class="hidden fixed inset-0 z-[60] bg-slate-900/90 backdrop-blur-sm p-4 flex items-center justify-center">
                     <div class="bg-white rounded-3xl p-8 w-full max-w-sm text-center space-y-6 success-bg">
                         <div class="w-16 h-16 bg-green-500 text-white rounded-full flex items-center justify-center mx-auto text-3xl shadow-lg shadow-green-100">✓</div>
@@ -150,8 +150,8 @@
             apiKey: "", authDomain: "m-pro.firebaseapp.com", projectId: "m-pro",
             storageBucket: "m-pro.appspot.com", messagingSenderId: "0", appId: "0"
         };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'meeting_final_v1';
-        const ADMIN_PWD = "123456"; // 默认后台管理口令
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'meeting_stable_v2';
+        const ADMIN_PWD = "123456";
 
         const app = initializeApp(fbConfig);
         const auth = getAuth(app);
@@ -163,44 +163,44 @@
         let dbUser = null;
         let isInitialized = false;
 
-        // --- 核心修复：强制进入逻辑 ---
+        // --- 核心修复：强制释放遮罩 ---
         window.forceSkipLoading = () => {
             if (isInitialized) return;
+            console.warn("Manual override: Skipping cloud sync wait.");
+            closeLoadingOverlay();
+        };
+
+        function closeLoadingOverlay() {
             const overlay = document.getElementById('loading-overlay');
             if (overlay) overlay.style.display = 'none';
             document.getElementById('view-user').classList.remove('hidden');
-            updateStatusUI('离线模式', 'bg-slate-400');
             renderFormFields();
             isInitialized = true;
-        };
+        }
 
         // --- 初始化身份 ---
         async function start() {
-            // 安全超时保护：3秒无法连接数据库则提示手动进入
+            // 设置 5 秒强制超时
             const safetyTimer = setTimeout(() => {
                 if (!isInitialized) {
-                    console.log("DB sync taking longer than expected...");
-                    // 保持 overlay 但提供手动进入权限
+                    updateStatusUI('同步超时/离线', 'bg-amber-400');
+                    closeLoadingOverlay();
                 }
-            }, 3000);
+            }, 5000);
 
+            // 监听 Auth 状态
             onAuthStateChanged(auth, async (user) => {
                 dbUser = user;
                 if (user) {
                     clearTimeout(safetyTimer);
                     updateStatusUI('已同步云端', 'bg-green-500');
                     await loadConfig();
-                    
-                    if (!isInitialized) {
-                        document.getElementById('loading-overlay').style.display = 'none';
-                        document.getElementById('view-user').classList.remove('hidden');
-                        isInitialized = true;
-                    }
-                    // 如果已是管理员，刷新列表
+                    if (!isInitialized) closeLoadingOverlay();
                     if (isAdmin) initAdminData();
                 }
             });
 
+            // 触发登录
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -214,35 +214,44 @@
         }
 
         function updateStatusUI(text, color) {
-            document.getElementById('status-dot').className = `w-2 h-2 rounded-full ${color}`;
-            document.getElementById('status-text').innerText = text;
+            const dot = document.getElementById('status-dot');
+            const txt = document.getElementById('status-text');
+            if(dot) dot.className = `w-2 h-2 rounded-full ${color}`;
+            if(txt) txt.innerText = text;
         }
 
-        // --- 报名配置 logic ---
+        // --- 配置逻辑 ---
         async function loadConfig() {
             if (!dbUser) return;
             const cRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'form_config');
             try {
                 const snap = await getDoc(cRef);
-                if(snap.exists()) configFields = snap.data().fields || ["单位"];
+                if(snap.exists()) {
+                    configFields = snap.data().fields || ["单位"];
+                }
                 renderFormFields();
             } catch(e) {
-                renderFormFields(); // 网络错误时加载默认
+                console.warn("Config load failed, using defaults.");
+                renderFormFields();
             }
         }
 
         async function saveConfig() {
             if (!dbUser || !isAdmin) return;
             const cRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'form_config');
-            await setDoc(cRef, { fields: configFields });
-            renderFormFields();
-            renderConfigList();
-            showToast("配置已更新");
+            try {
+                await setDoc(cRef, { fields: configFields });
+                renderFormFields();
+                renderConfigList();
+                showToast("配置已更新");
+            } catch (e) {
+                showToast("更新失败，请重试");
+            }
         }
 
         function renderFormFields() {
             const container = document.getElementById('form-fields');
-            // 保留固定必填项
+            if (!container) return;
             container.innerHTML = `
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-slate-500 ml-1">姓名 *</label>
@@ -253,7 +262,6 @@
                     <input type="tel" data-key="手机号" required class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="用于签到核销">
                 </div>
             `;
-            // 添加自定义项
             configFields.forEach(f => {
                 const div = document.createElement('div');
                 div.className = "space-y-1";
@@ -281,6 +289,7 @@
 
         function renderConfigList() {
             const el = document.getElementById('config-items');
+            if(!el) return;
             el.innerHTML = configFields.map(f => `
                 <span class="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 border border-slate-200">
                     ${f}
@@ -289,20 +298,23 @@
             `).join('');
         }
 
-        // --- 后台权限 logic ---
+        // --- 视图管理 ---
         window.requestAdmin = () => {
             if(isAdmin) { showView('admin'); return; }
             const p = prompt("后台管理权限：请输入口令（默认123456）");
             if(p === ADMIN_PWD) {
                 isAdmin = true;
-                document.getElementById('nav-admin').innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-                    <span class="text-blue-600 font-bold">管理控制台</span>
-                `;
+                const btn = document.getElementById('nav-admin');
+                if(btn) {
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                        <span class="text-blue-600 font-bold">管理控制台</span>
+                    `;
+                }
                 showView('admin');
                 initAdminData();
             } else if (p !== null) {
-                showToast("口令错误，请重试");
+                showToast("口令错误");
             }
         };
 
@@ -316,13 +328,13 @@
             if(v === 'scanner') startScanner(); else stopScanner();
         };
 
-        // --- 报名提交 logic ---
+        // --- 报名提交 ---
         document.getElementById('reg-form').onsubmit = async (e) => {
             e.preventDefault();
             const btn = document.getElementById('sub-btn');
             const originalText = btn.innerText;
             btn.disabled = true;
-            btn.innerText = "正在云端排队...";
+            btn.innerText = "提交中...";
 
             const formData = {};
             document.querySelectorAll('#form-fields input').forEach(inp => {
@@ -331,12 +343,11 @@
 
             try {
                 const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
-                // 存储前检查重复
                 const q = await getDocs(col);
                 const isDup = q.docs.some(d => d.data()['手机号'] === formData['手机号']);
                 
                 if (isDup) {
-                    showToast("该手机号已报名，请勿重复操作");
+                    showToast("已报名过，请勿重复提交");
                     btn.disabled = false;
                     btn.innerText = originalText;
                     return;
@@ -345,31 +356,30 @@
                 await addDoc(col, { 
                     ...formData, 
                     状态: '未签到', 
-                    时间: serverTimestamp(),
-                    来源: '移动端自登记'
+                    时间: serverTimestamp()
                 });
 
                 document.getElementById('success-box').classList.remove('hidden');
                 document.getElementById('qr-name').innerText = formData['姓名'];
-                document.getElementById('qrcode').innerHTML = ""; // 清空旧码
+                document.getElementById('qrcode').innerHTML = "";
                 new QRCode(document.getElementById('qrcode'), { text: formData['手机号'], width: 200, height: 200 });
                 
             } catch (err) {
-                showToast("连接中断，请重新点击提交");
+                showToast("同步失败，请检查网络");
                 btn.disabled = false;
                 btn.innerText = originalText;
             }
         };
 
-        // --- 后台数据同步 logic ---
+        // --- 后台数据 ---
         function initAdminData() {
             if (!dbUser || !isAdmin) return;
             renderConfigList();
             const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
             
-            // 实时监听数据
             onSnapshot(col, (snap) => {
                 const list = document.getElementById('admin-list');
+                if(!list) return;
                 list.innerHTML = '';
                 allData = [];
                 
@@ -377,94 +387,77 @@
                     const item = { id: d.id, ...d.data() };
                     allData.push(item);
                     const row = document.createElement('div');
-                    row.className = "p-4 flex justify-between items-center hover:bg-blue-50/30 transition-colors";
+                    row.className = "p-4 flex justify-between items-center hover:bg-blue-50/30 transition-colors border-b border-slate-50";
                     row.innerHTML = `
-                        <div class="space-y-0.5">
+                        <div>
                             <div class="flex items-center gap-2">
                                 <span class="font-bold text-slate-800">${item['姓名']}</span>
                                 <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${item['状态'] === '已签到' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}">${item['状态']}</span>
                             </div>
                             <div class="text-[11px] text-slate-400">${item['手机号']} ${item['单位'] ? '| '+item['单位'] : ''}</div>
                         </div>
-                        <div class="flex gap-2">
-                            <button onclick="deleteUser('${item.id}')" class="text-slate-300 hover:text-red-500 p-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                        </div>
+                        <button onclick="deleteUser('${item.id}')" class="text-slate-300 hover:text-red-500 p-2">
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
                     `;
                     list.appendChild(row);
                 });
-                document.getElementById('stat-count').innerText = snap.size;
+                const count = document.getElementById('stat-count');
+                if(count) count.innerText = snap.size;
             }, (error) => {
-                console.error("List sync error:", error);
+                console.error("Data sync error:", error);
             });
         }
 
         window.deleteUser = async (id) => {
-            if(confirm("确定永久删除该报名记录吗？")) {
+            if(confirm("确定删除吗？")) {
                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id));
                 showToast("已删除");
             }
         };
 
         window.exportExcel = () => {
-            if(allData.length === 0) return alert("暂无数据可导出");
-            const exportItems = allData.map(({id, 时间, ...rest}) => rest);
-            const ws = XLSX.utils.json_to_sheet(exportItems);
+            if(allData.length === 0) return alert("暂无数据");
+            const ws = XLSX.utils.json_to_sheet(allData.map(({id, 时间, ...rest}) => rest));
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "报名名单");
-            XLSX.writeFile(wb, `会议报名表_${new Date().toLocaleDateString()}.xlsx`);
+            XLSX.writeFile(wb, `会议表_${new Date().toLocaleDateString()}.xlsx`);
         };
 
-        // --- 扫码核销 logic ---
+        // --- 扫码逻辑 ---
         let scanner = null;
         async function startScanner() {
             const resEl = document.getElementById('scan-res');
-            resEl.className = "bg-white rounded-2xl p-8 text-center shadow-md min-h-[120px] flex items-center justify-center font-bold text-xl border-2 border-dashed border-slate-100";
             resEl.innerText = "准备扫描...";
-            
             scanner = new Html5Qrcode("reader");
             try {
                 await scanner.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, async (code) => {
-                    resEl.innerText = "正在核对: " + code;
                     const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
                     const q = await getDocs(col);
                     let foundDoc = null;
-                    
-                    q.forEach(d => {
-                        if(d.data()['手机号'] === code) foundDoc = d;
-                    });
+                    q.forEach(d => { if(d.data()['手机号'] === code) foundDoc = d; });
 
                     if(foundDoc) {
                         const info = foundDoc.data();
                         if(info['状态'] === '已签到') {
-                            resEl.innerHTML = `<div class="text-amber-500">⚠ 已重复签到<br><small class="text-slate-400">${info['姓名']}</small></div>`;
+                            resEl.innerHTML = `<div class="text-amber-500">⚠ 重复签到: ${info['姓名']}</div>`;
                         } else {
                             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', foundDoc.id), { 状态: '已签到' });
-                            resEl.innerHTML = `<div class="text-green-600 font-black">✓ 签到成功<br><small class="text-slate-800">${info['姓名']}</small></div>`;
-                            resEl.classList.add('bg-green-50');
+                            resEl.innerHTML = `<div class="text-green-600">✓ 签到成功: ${info['姓名']}</div>`;
                         }
                     } else {
-                        resEl.innerHTML = `<div class="text-red-500">✕ 未查询到报名记录<br><small class="text-slate-400">码内容: ${code}</small></div>`;
-                        resEl.classList.add('bg-red-50');
+                        resEl.innerHTML = `<div class="text-red-500">✕ 未找到记录: ${code}</div>`;
                     }
                 });
-            } catch (e) { 
-                resEl.innerText = "相机开启失败，请确认已授权权限";
-                console.error(e);
-            }
+            } catch (e) { resEl.innerText = "相机开启失败"; }
         }
 
-        async function stopScanner() { 
-            if(scanner && scanner.isScanning) {
-                await scanner.stop();
-                scanner = null;
-            }
-        }
+        async function stopScanner() { if(scanner) { await scanner.stop(); scanner = null; } }
 
         function showToast(m) {
             const t = document.getElementById('toast');
-            t.innerText = m; t.classList.remove('hidden', 'animate-pulse');
+            if(!t) return;
+            t.innerText = m; t.classList.remove('hidden');
             setTimeout(() => t.classList.add('hidden'), 3000);
         }
 
