@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>会务通 Pro - 报名与签到系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" type="module"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" type="module"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" type="module"></script>
+    <!-- 引入二维码生成库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- 引入 Excel 导出库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 引入扫码库 -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; }
+        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app" class="max-w-4xl mx-auto p-4 pb-20">
+        <!-- 导航栏 -->
+        <nav class="flex justify-between items-center py-6 border-b mb-6">
+            <h1 class="text-xl font-bold text-blue-600">会务通 Pro</h1>
+            <div class="flex space-x-2 sm:space-x-4">
+                <button onclick="switchView('user')" id="btn-user" class="px-2 py-2 text-sm font-medium tab-active">报名申请</button>
+                <button onclick="switchView('admin')" id="btn-admin" class="px-2 py-2 text-sm font-medium text-gray-500">数据管理</button>
+                <button onclick="switchView('scanner')" id="btn-scanner" class="px-2 py-2 text-sm font-medium text-gray-500">现场签到</button>
+            </div>
+        </nav>
+
+        <!-- 状态横幅 -->
+        <div id="auth-status-banner" class="bg-amber-100 text-amber-800 text-xs px-4 py-2 mb-4 rounded-lg flex items-center justify-between">
+            <span id="auth-status-text">正在初始化安全连接...</span>
+        </div>
+
+        <!-- 1. 用户报名视图 -->
+        <div id="view-user" class="space-y-6">
+            <div id="form-container" class="bg-white p-6 rounded-2xl shadow-sm border">
+                <h2 class="text-lg font-semibold mb-2">参会报名登记</h2>
+                <p class="text-gray-500 mb-6 text-xs">提交成功后请保存您的专属签到二维码。</p>
+                
+                <form id="reg-form" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700">姓名 *</label>
+                            <input type="text" id="name" required class="mt-1 block w-full rounded-lg border p-2.5 text-sm bg-gray-50">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700">手机号 *</label>
+                            <input type="tel" id="phone" required class="mt-1 block w-full rounded-lg border p-2.5 text-sm bg-gray-50">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">单位名称</label>
+                        <input type="text" id="company" class="mt-1 block w-full rounded-lg border p-2.5 text-sm bg-gray-50">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">申请项目</label>
+                        <select id="type" class="mt-1 block w-full rounded-lg border p-2.5 text-sm bg-gray-50">
+                            <option value="入会申请">入会申请</option>
+                            <option value="会议报名">会议报名</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="submit-btn" disabled class="w-full bg-gray-400 text-white font-bold py-3 rounded-xl cursor-not-allowed transition">
+                        等待系统就绪...
+                    </button>
+                </form>
+            </div>
+
+            <!-- 成功反馈及二维码 -->
+            <div id="success-card" class="hidden bg-white p-8 rounded-2xl shadow-lg border text-center space-y-6">
+                <div class="text-green-500 text-5xl">✓</div>
+                <h2 class="text-xl font-bold">报名提交成功！</h2>
+                <p class="text-gray-500 text-sm">请截图保存下方二维码，现场签到时出示：</p>
+                <div id="qrcode" class="flex justify-center p-4 bg-white inline-block border-2 border-dashed border-gray-200 rounded-lg mx-auto"></div>
+                <p id="qr-info" class="font-mono text-blue-600 font-bold"></p>
+                <button onclick="location.reload()" class="text-blue-600 text-sm underline">返回重新填写</button>
+            </div>
+        </div>
+
+        <!-- 2. 管理后台视图 -->
+        <div id="view-admin" class="hidden space-y-6">
+            <div class="bg-white p-4 rounded-2xl shadow-sm border">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <div>
+                        <h2 class="text-lg font-semibold">报名名单</h2>
+                        <p id="total-stats" class="text-xs text-gray-500 text-blue-600">等待加载...</p>
+                    </div>
+                    <button onclick="exportToExcel()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 flex items-center">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        导出 Excel
+                    </button>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-600 font-medium">
+                            <tr>
+                                <th class="px-4 py-3">姓名/电话</th>
+                                <th class="px-4 py-3">单位</th>
+                                <th class="px-4 py-3">状态</th>
+                                <th class="px-4 py-3">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-list" class="divide-y">
+                            <!-- 数据行 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 扫码签到视图 -->
+        <div id="view-scanner" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border text-center">
+                <h2 class="text-lg font-semibold mb-4">现场扫码核销</h2>
+                <div id="reader" class="mx-auto overflow-hidden rounded-xl border-2 border-blue-100 mb-4" style="max-width: 400px;"></div>
+                <div id="scan-result" class="p-4 rounded-xl bg-gray-50 min-h-[60px] flex items-center justify-center text-sm font-medium">
+                    准备就绪，请扫描参与者二维码
+                </div>
+                <p class="text-xs text-gray-400 mt-4">提示：请确保已授权浏览器调用摄像头权限</p>
+            </div>
+        </div>
+
+        <!-- 提示弹窗 -->
+        <div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 hidden bg-gray-800/90 text-white px-6 py-3 rounded-full shadow-2xl transition-all z-50 text-sm">
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, query, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 获取全局注入的变量
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'event-pro-002';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let allData = [];
+        let html5QrCode = null;
+        let unsubscribeData = null;
+
+        // 核心修复规则 3: 必须先完成登录再进行查询
+        const startApp = async () => {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("认证失败", err);
+                document.getElementById('auth-status-text').innerText = "安全连接失败，请刷新页面重试。";
+                showToast("认证失败: " + err.message);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                document.getElementById('auth-status-banner').classList.add('hidden');
+                document.getElementById('submit-btn').disabled = false;
+                document.getElementById('submit-btn').innerText = "提交报名";
+                document.getElementById('submit-btn').className = "w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition";
+                
+                // 登录成功后再加载数据
+                loadData();
+            }
+        });
+
+        // 切换页面逻辑
+        window.switchView = (view) => {
+            const views = ['user', 'admin', 'scanner'];
+            views.forEach(v => {
+                document.getElementById(`view-${v}`).classList.toggle('hidden', v !== view);
+                document.getElementById(`btn-${v}`).className = v === view ? 'px-2 py-2 text-sm font-medium tab-active' : 'px-2 py-2 text-sm font-medium text-gray-500';
+            });
+            
+            if (view === 'scanner') startScanner();
+            else stopScanner();
+        };
+
+        // 1. 报名提交处理
+        document.getElementById('reg-form').onsubmit = async (e) => {
+            e.preventDefault();
+            if (!currentUser) return showToast("正在初始化安全连接...");
+
+            const phone = document.getElementById('phone').value.trim();
+            const name = document.getElementById('name').value.trim();
+
+            const formData = {
+                name, phone,
+                company: document.getElementById('company').value.trim(),
+                type: document.getElementById('type').value,
+                status: '未签到',
+                createdAt: serverTimestamp()
+            };
+
+            try {
+                // 核心修复规则 1: 必须使用规定的数据路径
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+                await addDoc(colRef, formData);
+                
+                document.getElementById('form-container').classList.add('hidden');
+                document.getElementById('success-card').classList.remove('hidden');
+                document.getElementById('qr-info').innerText = `${name} | ${phone}`;
+                
+                document.getElementById('qrcode').innerHTML = '';
+                new QRCode(document.getElementById("qrcode"), {
+                    text: phone,
+                    width: 200,
+                    height: 200
+                });
+                showToast("报名成功！");
+            } catch (err) {
+                showToast("提交失败: " + err.message);
+            }
+        };
+
+        // 2. 后台数据加载
+        function loadData() {
+            if (!currentUser) return;
+            
+            // 如果已有监听器，先关闭
+            if (unsubscribeData) unsubscribeData();
+
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+            
+            // 规则 2 & 强制要求: onSnapshot 必须带错误回调
+            unsubscribeData = onSnapshot(colRef, (snapshot) => {
+                const list = document.getElementById('data-list');
+                list.innerHTML = '';
+                allData = [];
+                let signedCount = 0;
+
+                snapshot.forEach((docSnap) => {
+                    const data = docSnap.data();
+                    allData.push({ ...data, id: docSnap.id });
+                    if(data.status === '已签到') signedCount++;
+
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50";
+                    tr.innerHTML = `
+                        <td class="px-4 py-4">
+                            <div class="font-medium text-gray-800">${data.name || '无名'}</div>
+                            <div class="text-xs text-gray-400">${data.phone || '无电话'}</div>
+                        </td>
+                        <td class="px-4 py-4 text-xs text-gray-500">${data.company || '-'}</td>
+                        <td class="px-4 py-4">
+                            <span class="px-2 py-1 rounded-full text-[10px] ${data.status === '已签到' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
+                                ${data.status}
+                            </span>
+                        </td>
+                        <td class="px-4 py-4 text-xs space-x-2">
+                            <button onclick="toggleSign('${docSnap.id}', '${data.status}')" class="text-blue-600 hover:underline">状态</button>
+                            <button onclick="deleteEntry('${docSnap.id}')" class="text-red-400 hover:underline">删除</button>
+                        </td>
+                    `;
+                    list.appendChild(tr);
+                });
+                document.getElementById('total-stats').innerText = `总报名: ${snapshot.size} | 已签到: ${signedCount}`;
+            }, (error) => {
+                console.error("Firestore监听失败", error);
+                showToast("数据访问受限，请确认数据库权限配置");
+            });
+        }
+
+        // 导出 Excel
+        window.exportToExcel = () => {
+            if (allData.length === 0) return showToast("暂无数据可导出");
+            const worksheet = XLSX.utils.json_to_sheet(allData.map(item => ({
+                "姓名": item.name,
+                "电话": item.phone,
+                "单位": item.company,
+                "类型": item.type,
+                "签到状态": item.status,
+                "提交时间": item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : '未知'
+            })));
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "报名名单");
+            XLSX.writeFile(workbook, `报名名单_${new Date().getTime()}.xlsx`);
+        };
+
+        // 修改签到状态
+        window.toggleSign = async (id, currentStatus) => {
+            if (!currentUser) return;
+            const newStatus = currentStatus === '已签到' ? '未签到' : '已签到';
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id), {
+                    status: newStatus
+                });
+            } catch (err) { showToast("操作失败"); }
+        };
+
+        // 删除数据
+        window.deleteEntry = async (id) => {
+            if (!currentUser) return;
+            if (confirm("确认彻底删除该记录？")) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id));
+            }
+        };
+
+        // 3. 扫码核销核心逻辑
+        async function startScanner() {
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            
+            try {
+                await html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
+                    document.getElementById('scan-result').innerHTML = `<span class="text-blue-600 animate-pulse">正在核销: ${decodedText}...</span>`;
+                    await verifyCheckIn(decodedText);
+                });
+            } catch (err) {
+                document.getElementById('scan-result').innerText = "无法启动摄像头，请授权权限。";
+            }
+        }
+
+        async function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                await html5QrCode.stop();
+            }
+        }
+
+        async function verifyCheckIn(phone) {
+            if (!currentUser) return;
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+            
+            try {
+                // 规则 2: 使用简单的 getDocs，在客户端过滤，避免复杂的复合索引查询
+                const snapshot = await getDocs(colRef);
+                let target = null;
+
+                snapshot.forEach(d => {
+                    if(d.data().phone === phone) target = { id: d.id, ...d.data() };
+                });
+
+                const resultDiv = document.getElementById('scan-result');
+                if (target) {
+                    if (target.status === '已签到') {
+                        resultDiv.innerHTML = `<span class="text-amber-500 font-bold">⚠️ ${target.name} 此前已签到</span>`;
+                    } else {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', target.id), {
+                            status: '已签到',
+                            checkInTime: serverTimestamp()
+                        });
+                        resultDiv.innerHTML = `<span class="text-green-600 font-bold">✅ 签到成功：${target.name}</span>`;
+                        showToast("核销成功！");
+                    }
+                } else {
+                    resultDiv.innerHTML = `<span class="text-red-500 font-bold">❌ 未找到报名信息 (${phone})</span>`;
+                }
+            } catch (err) {
+                showToast("核销失败: " + err.message);
+            }
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        }
+
+        // 启动应用
+        startApp();
+    </script>
+</body>
+</html>
