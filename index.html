@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>会务通 Pro - 动态管理系统</title>
+    <title>会务通 Pro - 极速稳定版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" type="module"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" type="module"></script>
@@ -12,386 +12,416 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
+        .admin-gradient { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
         .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: bold; }
-        #reader video { border-radius: 12px; }
-        .config-item { transition: all 0.2s; }
+        .hidden-element { display: none !important; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen text-gray-800">
-    <div id="app" class="max-w-xl mx-auto p-4 pb-20">
-        <!-- Navigation -->
-        <nav class="flex justify-around items-center py-4 bg-white shadow-sm rounded-2xl mb-6 sticky top-2 z-40">
-            <button onclick="switchView('user')" id="btn-user" class="px-4 py-2 text-sm tab-active">报名登记</button>
-            <button onclick="authAdmin('admin')" id="btn-admin" class="px-4 py-2 text-sm text-gray-400">数据管理</button>
-            <button onclick="authAdmin('scanner')" id="btn-scanner" class="px-4 py-2 text-sm text-gray-400">扫码签到</button>
+<body class="bg-slate-50 min-h-screen text-slate-900 font-sans">
+    <div id="app" class="max-w-xl mx-auto min-h-screen flex flex-col">
+        
+        <!-- 顶部状态栏 -->
+        <header class="bg-white px-6 py-4 shadow-sm flex justify-between items-center">
+            <h1 class="text-xl font-black italic text-blue-600">MEETING<span class="text-slate-400">PRO</span></h1>
+            <div id="connection-status" class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                <span class="text-[10px] text-slate-400 uppercase tracking-widest">Connecting</span>
+            </div>
+        </header>
+
+        <!-- 主导航 -->
+        <nav class="bg-white border-b border-slate-100 flex justify-around sticky top-0 z-50">
+            <button onclick="showView('user')" id="nav-user" class="py-4 px-2 text-sm tab-active">报名登记</button>
+            <button onclick="requestAdmin()" id="nav-admin" class="py-4 px-2 text-sm text-slate-400 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                后台管理
+            </button>
         </nav>
 
-        <!-- Loading State -->
-        <div id="status-loading" class="text-center py-10">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p class="text-sm text-gray-500">正在同步配置并连接数据库...</p>
-            <button onclick="forceStart()" class="mt-4 text-xs text-blue-500 underline">如果长时间无响应，请点击此处强制进入</button>
-        </div>
+        <main class="flex-grow p-4 pb-24">
+            <!-- 初始加载遮罩 -->
+            <div id="loading-overlay" class="py-20 text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-4"></div>
+                <p class="text-slate-500 text-sm">正在加载安全组件...</p>
+            </div>
 
-        <!-- View 1: Registration -->
-        <div id="view-user" class="hidden space-y-6">
-            <div id="form-box" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <div class="mb-6">
-                    <h2 class="text-xl font-bold text-gray-900">参会报名</h2>
-                    <p class="text-xs text-gray-400 mt-1">请填写以下信息完成登记</p>
-                </div>
-                
-                <form id="reg-form" class="space-y-4">
-                    <div id="dynamic-fields" class="space-y-4">
-                        <!-- Core fields -->
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 uppercase">姓名 *</label>
-                            <input type="text" data-key="name" required placeholder="请输入姓名" class="mt-1 block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 uppercase">手机号 *</label>
-                            <input type="tel" data-key="phone" required placeholder="用于签到核销" class="mt-1 block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        </div>
-                    </div>
+            <!-- 视图 1: 用户报名 -->
+            <section id="view-user" class="hidden space-y-4">
+                <div class="bg-white rounded-3xl p-6 shadow-xl shadow-slate-200/50 border border-white">
+                    <h2 class="text-2xl font-bold mb-2">会议报名</h2>
+                    <p class="text-slate-400 text-sm mb-6">欢迎参加本次会议，请填写以下信息</p>
                     
-                    <button type="submit" id="submit-btn" class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-all">
-                        立即提交报名
+                    <form id="reg-form" class="space-y-4">
+                        <div id="form-fields" class="space-y-4">
+                            <!-- 默认字段 -->
+                            <div class="space-y-1">
+                                <label class="text-xs font-bold text-slate-500 ml-1">姓名 *</label>
+                                <input type="text" data-key="姓名" required class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 transition-all outline-none" placeholder="请输入您的姓名">
+                            </div>
+                            <div class="space-y-1">
+                                <label class="text-xs font-bold text-slate-500 ml-1">手机号 *</label>
+                                <input type="tel" data-key="手机号" required class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 transition-all outline-none" placeholder="用于现场签到核销">
+                            </div>
+                        </div>
+                        <button type="submit" id="sub-btn" class="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all mt-4">
+                            提交并生成签到码
+                        </button>
+                    </form>
+                </div>
+
+                <!-- 成功卡片 -->
+                <div id="success-box" class="hidden fixed inset-0 z-[60] bg-slate-900/90 backdrop-blur-sm p-4 flex items-center justify-center">
+                    <div class="bg-white rounded-3xl p-8 w-full max-sm text-center space-y-6">
+                        <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-4xl">✓</div>
+                        <h3 class="text-2xl font-bold">报名成功</h3>
+                        <div id="qrcode" class="bg-white p-2 border-8 border-slate-50 rounded-2xl inline-block mx-auto"></div>
+                        <p id="qr-name" class="text-xl font-bold text-blue-600"></p>
+                        <p class="text-xs text-slate-400">请截图保存，现场向工作人员出示</p>
+                        <button onclick="location.reload()" class="w-full py-3 text-slate-500 font-medium">返回重新填写</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 视图 2: 管理后台 -->
+            <section id="view-admin" class="hidden space-y-6">
+                <!-- 统计卡片 -->
+                <div class="admin-gradient rounded-3xl p-6 text-white shadow-lg flex justify-between items-center">
+                    <div>
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Registrations</p>
+                        <h3 id="stat-count" class="text-4xl font-black">0</h3>
+                    </div>
+                    <button onclick="exportExcel()" class="bg-white/10 hover:bg-white/20 p-4 rounded-2xl transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     </button>
-                </form>
-            </div>
-
-            <!-- Success Card -->
-            <div id="success-box" class="hidden bg-white p-8 rounded-2xl shadow-xl border border-green-50 text-center space-y-6">
-                <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-3xl">✓</div>
-                <h2 class="text-xl font-bold text-gray-900">报名提交成功！</h2>
-                <div id="qrcode" class="flex justify-center p-2 bg-white border rounded-xl mx-auto inline-block"></div>
-                <p id="qr-label" class="text-blue-700 font-bold font-mono"></p>
-                <p class="text-xs text-red-500 font-medium italic">请务必截图保存此页面，现场扫码签到</p>
-                <button onclick="location.reload()" class="text-gray-400 text-xs underline">返回首页</button>
-            </div>
-        </div>
-
-        <!-- View 2: Admin Dashboard -->
-        <div id="view-admin" class="hidden space-y-8">
-            <div class="flex justify-between items-end bg-white p-4 rounded-2xl border">
-                <div>
-                    <h2 class="text-lg font-bold text-blue-600">报名数据</h2>
-                    <p id="stats-text" class="text-xs text-gray-400">加载中...</p>
                 </div>
-                <button onclick="exportData()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold">导出 EXCEL</button>
-            </div>
 
-            <!-- Form Config Manager -->
-            <div class="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm">
-                <h2 class="text-md font-bold mb-4 flex items-center">
-                    <span class="w-1 h-5 bg-blue-600 mr-2"></span>表单内容配置
-                </h2>
-                <div id="config-list" class="space-y-2 mb-4"></div>
-                <div class="flex gap-2">
-                    <input type="text" id="new-field-label" placeholder="如：单位、职务、性别" class="flex-1 border rounded-lg p-2 text-sm outline-none focus:ring-1">
-                    <button onclick="addField()" class="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">+ 添加字段</button>
+                <!-- 表单配置器 -->
+                <div class="bg-white rounded-3xl p-6 border border-slate-200">
+                    <h4 class="font-bold mb-4 flex items-center gap-2">
+                        <span class="w-1 h-4 bg-blue-600 rounded"></span> 自定义报名项
+                    </h4>
+                    <div id="config-items" class="flex flex-wrap gap-2 mb-4"></div>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-field-name" placeholder="如：单位、职务" class="flex-1 bg-slate-50 rounded-xl px-4 py-2 text-sm outline-none">
+                        <button onclick="addNewField()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">+ 添加</button>
+                    </div>
                 </div>
-                <p class="text-[10px] text-gray-400 mt-2">* 姓名和手机号为系统核心字段，不可修改</p>
-            </div>
-            
-            <!-- Data Table -->
-            <div class="bg-white rounded-2xl border overflow-hidden shadow-sm">
-                <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-4 py-3 font-medium text-gray-500">成员信息</th>
-                            <th class="px-4 py-3 font-medium text-gray-500 text-center">状态</th>
-                            <th class="px-4 py-3 font-medium text-gray-500 text-right">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="data-table" class="divide-y"></tbody>
-                </table>
-            </div>
-        </div>
 
-        <!-- View 3: QR Scanner -->
-        <div id="view-scanner" class="hidden space-y-4">
-            <div class="bg-white p-6 rounded-2xl border">
-                <h2 class="text-lg font-bold mb-4 text-center">现场核销扫码</h2>
-                <div id="reader" class="overflow-hidden bg-black rounded-xl mb-4"></div>
-                <div id="scan-feedback" class="p-4 rounded-xl bg-gray-50 text-center min-h-[60px] flex items-center justify-center font-bold">
-                    等待扫描...
+                <!-- 数据列表 -->
+                <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div class="p-4 border-b border-slate-50 font-bold text-sm flex justify-between">
+                        <span>参会人员名单</span>
+                        <button onclick="showView('scanner')" class="text-blue-600">去扫码签到 ></button>
+                    </div>
+                    <div id="admin-list" class="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
+                        <!-- 数据行 -->
+                    </div>
                 </div>
-            </div>
-        </div>
+            </section>
 
-        <!-- Toast Notification -->
-        <div id="toast" class="fixed bottom-24 left-1/2 -translate-x-1/2 hidden bg-black/80 text-white px-6 py-2 rounded-full text-sm z-50"></div>
+            <!-- 视图 3: 扫码器 -->
+            <section id="view-scanner" class="hidden space-y-4">
+                <div class="bg-slate-900 rounded-3xl p-4 overflow-hidden shadow-2xl">
+                    <div id="reader" class="w-full"></div>
+                </div>
+                <div id="scan-res" class="bg-white rounded-2xl p-6 text-center shadow-md min-h-[100px] flex items-center justify-center font-bold text-lg">
+                    等待扫描二维码...
+                </div>
+                <button onclick="showView('admin')" class="w-full py-4 text-slate-400 font-bold">退出扫码模式</button>
+            </section>
+        </main>
+
+        <!-- 提示信息 -->
+        <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 hidden bg-slate-900 text-white px-6 py-3 rounded-full text-sm shadow-2xl z-[100]"></div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, getDocs, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, getDoc, setDoc, getDocs, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Config
-        const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
-            apiKey: "", authDomain: "event-pro.firebaseapp.com", projectId: "event-pro",
-            storageBucket: "event-pro.appspot.com", messagingSenderId: "0", appId: "0"
+        // --- 配置区 ---
+        const fbConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+            apiKey: "", authDomain: "m-pro.firebaseapp.com", projectId: "m-pro",
+            storageBucket: "m-pro.appspot.com", messagingSenderId: "0", appId: "0"
         };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'meeting-dynamic-v2';
-        const adminKey = "123456"; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'meeting_pro_stable_v1';
+        const ADMIN_PWD = "123456";
 
-        const app = initializeApp(firebaseConfig);
+        const app = initializeApp(fbConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        let adminVerified = false;
-        let masterData = [];
-        let formFields = [];
-        let isDbConnected = false;
+        let isAdmin = false;
+        let configFields = ["单位"];
+        let allData = [];
+        let currentUser = null;
 
-        // Force start function for preview mode
-        window.forceStart = () => {
-            document.getElementById('status-loading').classList.add('hidden');
-            document.getElementById('view-user').classList.remove('hidden');
-            renderUserForm();
-        };
+        // --- 核心初始化 ---
+        async function init() {
+            const timeout = setTimeout(() => {
+                if (document.getElementById('loading-overlay')) {
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    document.getElementById('view-user').classList.remove('hidden');
+                    updateStatus('Offline/Stable Mode', 'bg-slate-300');
+                }
+            }, 3000);
 
-        // 1. Initialization
-        async function start() {
             try {
-                // Auth first with retry logic
-                await signInAnonymously(auth);
-                await loadFormConfig();
-                isDbConnected = true;
-                forceStart();
-            } catch (err) {
-                console.warn("Database connection failed, using local/preview mode.", err);
-                // In preview mode, we might still want to show the UI
-                setTimeout(forceStart, 2000); 
-            }
-        }
-
-        // 2. Form Config Management
-        async function loadFormConfig() {
-            try {
-                const configRef = doc(db, 'artifacts', appId, 'public', 'config', 'form');
-                const snap = await getDoc(configRef);
-                if(snap.exists()) {
-                    formFields = snap.data().fields || [];
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
-                    formFields = ["单位"];
-                    await setDoc(configRef, { fields: formFields });
+                    await signInAnonymously(auth);
                 }
             } catch (e) {
-                formFields = ["单位"]; // Fallback
+                console.error("Auth Error:", e);
+                updateStatus('Local Mode', 'bg-amber-500');
             }
-            renderUserForm();
-            if(adminVerified) renderConfigEditor();
+
+            onAuthStateChanged(auth, async (user) => {
+                currentUser = user;
+                if (user) {
+                    updateStatus('Cloud Connected', 'bg-green-500');
+                    await loadConfig();
+                    clearTimeout(timeout);
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    document.getElementById('view-user').classList.remove('hidden');
+                }
+            });
         }
 
-        function renderUserForm() {
-            const container = document.getElementById('dynamic-fields');
+        function updateStatus(text, colorClass) {
+            const el = document.getElementById('connection-status');
+            el.innerHTML = `<span class="w-2 h-2 rounded-full ${colorClass}"></span><span class="text-[10px] text-slate-400 uppercase tracking-widest">${text}</span>`;
+        }
+
+        // --- 修正后的表单配置管理 (路径修正为 6 段，偶数段指向文档) ---
+        async function loadConfig() {
+            if (!currentUser) return;
+            try {
+                // 修正路径：artifacts/{appId}/public/data/settings/form_config (6段)
+                const cRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'form_config');
+                const snap = await getDoc(cRef);
+                if(snap.exists()) {
+                    configFields = snap.data().fields || [];
+                }
+                renderFormFields();
+            } catch (e) {
+                console.error("Load Config Error:", e);
+            }
+        }
+
+        async function saveConfig() {
+            if (!currentUser) return;
+            try {
+                const cRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'form_config');
+                await setDoc(cRef, { fields: configFields });
+                renderFormFields();
+                renderConfigList();
+                showToast("配置已更新");
+            } catch (e) {
+                showToast("保存失败: 权限不足或网络错误");
+            }
+        }
+
+        function renderFormFields() {
+            const container = document.getElementById('form-fields');
             container.innerHTML = `
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase">姓名 *</label>
-                    <input type="text" data-key="name" required placeholder="请输入姓名" class="mt-1 block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <div class="space-y-1">
+                    <label class="text-xs font-bold text-slate-500 ml-1">姓名 *</label>
+                    <input type="text" data-key="姓名" required class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="请输入姓名">
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-500 uppercase">手机号 *</label>
-                    <input type="tel" data-key="phone" required placeholder="用于签到核销" class="mt-1 block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <div class="space-y-1">
+                    <label class="text-xs font-bold text-slate-500 ml-1">手机号 *</label>
+                    <input type="tel" data-key="手机号" required class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="签到唯一凭证">
                 </div>
             `;
-            formFields.forEach(f => {
+            configFields.forEach(f => {
                 const div = document.createElement('div');
+                div.className = "space-y-1";
                 div.innerHTML = `
-                    <label class="block text-xs font-semibold text-gray-500 uppercase">${f}</label>
-                    <input type="text" data-key="${f}" placeholder="请输入${f}" class="mt-1 block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <label class="text-xs font-bold text-slate-500 ml-1">${f}</label>
+                    <input type="text" data-key="${f}" class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="请输入${f}">
                 `;
                 container.appendChild(div);
             });
         }
 
-        window.addField = async () => {
-            const input = document.getElementById('new-field-label');
+        window.addNewField = async () => {
+            const input = document.getElementById('new-field-name');
             const val = input.value.trim();
-            if(!val || formFields.includes(val)) return;
-            formFields.push(val);
+            if(!val || configFields.includes(val)) return;
+            configFields.push(val);
             await saveConfig();
             input.value = '';
         };
 
         window.removeField = async (f) => {
-            if(!confirm(`确定移除“${f}”字段吗？`)) return;
-            formFields = formFields.filter(item => item !== f);
+            configFields = configFields.filter(i => i !== f);
             await saveConfig();
         };
 
-        async function saveConfig() {
-            try {
-                const configRef = doc(db, 'artifacts', appId, 'public', 'config', 'form');
-                await setDoc(configRef, { fields: formFields });
-                showToast("配置已同步");
-            } catch (e) {
-                showToast("本地预览模式，配置无法同步到云端");
-            }
-            renderConfigEditor();
-            renderUserForm();
-        }
-
-        function renderConfigEditor() {
-            const list = document.getElementById('config-list');
-            list.innerHTML = formFields.map(f => `
-                <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg border text-sm">
-                    <span>${f}</span>
-                    <button onclick="removeField('${f}')" class="text-red-500 text-xs">移除</button>
-                </div>
+        function renderConfigList() {
+            const el = document.getElementById('config-items');
+            el.innerHTML = configFields.map(f => `
+                <span class="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                    ${f}
+                    <button onclick="removeField('${f}')" class="text-slate-400 hover:text-red-500">×</button>
+                </span>
             `).join('');
         }
 
-        // 3. Submit Logic
+        // --- 管理权限 ---
+        window.requestAdmin = () => {
+            if(isAdmin) {
+                showView('admin');
+                return;
+            }
+            const p = prompt("请输入管理员密码：");
+            if(p === ADMIN_PWD) {
+                isAdmin = true;
+                const btn = document.getElementById('nav-admin');
+                btn.innerHTML = '<span class="text-blue-600 font-bold tracking-tight">管理模式</span>';
+                btn.classList.add('tab-active');
+                showView('admin');
+                initAdminDashboard();
+            } else if(p !== null) {
+                showToast("密码错误");
+            }
+        };
+
+        window.showView = (v) => {
+            ['user', 'admin', 'scanner'].forEach(id => {
+                const sec = document.getElementById(`view-${id}`);
+                if (sec) sec.classList.toggle('hidden', id !== v);
+                const nav = document.getElementById(`nav-${id}`);
+                if(nav) nav.classList.toggle('tab-active', id === v);
+            });
+            if(v === 'scanner') startScanner(); else stopScanner();
+        };
+
+        // --- 报名提交 (修正集合路径为 5 段) ---
         document.getElementById('reg-form').onsubmit = async (e) => {
             e.preventDefault();
-            const btn = document.getElementById('submit-btn');
+            if (!currentUser) return showToast("尚未连接数据库");
+            
+            const btn = document.getElementById('sub-btn');
             btn.disabled = true;
             btn.innerText = "提交中...";
 
-            const formData = {};
-            document.querySelectorAll('#dynamic-fields input').forEach(input => {
-                formData[input.getAttribute('data-key')] = input.value.trim();
+            const data = {};
+            document.querySelectorAll('#form-fields input').forEach(inp => {
+                data[inp.getAttribute('data-key')] = inp.value.trim();
             });
 
             try {
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
-                await addDoc(colRef, {
-                    ...formData,
-                    status: '未签到',
-                    timestamp: serverTimestamp()
-                });
+                // 修正集合路径为 5 段：artifacts/{appId}/public/data/registrations
+                const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+                await addDoc(col, { ...data, 状态: '未签到', 时间: serverTimestamp() });
                 
-                showSuccess(formData);
+                document.getElementById('success-box').classList.remove('hidden');
+                document.getElementById('qr-name').innerText = data['姓名'];
+                const qrEl = document.getElementById('qrcode');
+                qrEl.innerHTML = '';
+                new QRCode(qrEl, { text: data['手机号'], width: 180, height: 180 });
             } catch (err) {
                 console.error(err);
-                // Success anyway in local mode for demonstration
-                showToast("云端同步失败，正在尝试本地生成二维码...");
-                showSuccess(formData);
+                showToast("提交失败: " + err.message);
+                btn.disabled = false;
+                btn.innerText = "重新提交";
             }
         };
 
-        function showSuccess(data) {
-            document.getElementById('form-box').classList.add('hidden');
-            document.getElementById('success-box').classList.remove('hidden');
-            document.getElementById('qr-label').innerText = data.name + " (" + data.phone + ")";
-            const qrContainer = document.getElementById("qrcode");
-            qrContainer.innerHTML = "";
-            new QRCode(qrContainer, { text: data.phone, width: 180, height: 180 });
-        }
-
-        // 4. Admin Management
-        window.authAdmin = (view) => {
-            if (adminVerified) { switchView(view); } 
-            else {
-                const pass = prompt("管理员口令：");
-                if (pass === adminKey) {
-                    adminVerified = true;
-                    switchView(view);
-                    initAdminData();
-                    renderConfigEditor();
-                }
-            }
-        };
-
-        window.switchView = (v) => {
-            ['user', 'admin', 'scanner'].forEach(id => {
-                document.getElementById(`view-${id}`).classList.toggle('hidden', id !== v);
-                document.getElementById(`btn-${id}`).className = id === v ? 'px-4 py-2 text-sm tab-active' : 'px-4 py-2 text-sm text-gray-400';
-            });
-            if (v === 'scanner') initScanner(); else stopScanner();
-        };
-
-        function initAdminData() {
-            try {
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
-                onSnapshot(colRef, (snap) => {
-                    const tbody = document.getElementById('data-table');
-                    tbody.innerHTML = '';
-                    masterData = [];
-                    let checked = 0;
-                    snap.forEach(d => {
-                        const item = { id: d.id, ...d.data() };
-                        masterData.push(item);
-                        if(item.status === '已签到') checked++;
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td class="px-4 py-4 text-xs"><b>${item.name}</b><br>${item.phone}</td>
-                            <td class="px-4 py-4 text-center">
-                                <span class="px-2 py-1 rounded text-[10px] ${item.status === '已签到' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}">${item.status}</span>
-                            </td>
-                            <td class="px-4 py-4 text-right">
-                                <button onclick="deleteEntry('${item.id}')" class="text-red-400 text-xs">删除</button>
-                            </td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-                    document.getElementById('stats-text').innerText = `已报: ${snap.size} | 已签: ${checked}`;
-                }, (err) => {
-                    console.warn("Snapshot listener failed: ", err);
-                    document.getElementById('stats-text').innerText = "暂无云端数据 (预览模式)";
+        // --- 后台数据 ---
+        function initAdminDashboard() {
+            if (!currentUser) return;
+            renderConfigList();
+            const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+            onSnapshot(col, (snap) => {
+                const list = document.getElementById('admin-list');
+                list.innerHTML = '';
+                allData = [];
+                snap.forEach(d => {
+                    const item = { id: d.id, ...d.data() };
+                    allData.push(item);
+                    const row = document.createElement('div');
+                    row.className = "p-4 flex justify-between items-center hover:bg-slate-50 transition-colors";
+                    row.innerHTML = `
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2 font-bold text-slate-800">
+                                ${item['姓名']}
+                                <span class="text-[10px] px-2 py-0.5 rounded-full ${item['状态'] === '已签到' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}">${item['状态']}</span>
+                            </div>
+                            <div class="text-xs text-slate-400 font-mono">${item['手机号']}</div>
+                        </div>
+                        <button onclick="deleteUser('${item.id}')" class="text-slate-300 hover:text-red-500 p-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    `;
+                    list.appendChild(row);
                 });
-            } catch (e) {
-                document.getElementById('stats-text').innerText = "数据库未就绪";
-            }
+                document.getElementById('stat-count').innerText = snap.size;
+            }, (err) => console.error("Snapshot Error:", err));
         }
 
-        window.deleteEntry = async (id) => {
-            if(!confirm("确定删除？")) return;
-            try {
+        window.deleteUser = async (id) => {
+            if(confirm("确定彻底删除该记录？")) {
                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id));
-            } catch(e) { showToast("删除失败，请检查网络"); }
+                showToast("已删除");
+            }
         };
 
-        // 5. Scanner & Export
+        window.exportExcel = () => {
+            if(allData.length === 0) return showToast("暂无数据导出");
+            const ws = XLSX.utils.json_to_sheet(allData.map(({id, 时间, ...rest}) => rest));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "报名表");
+            XLSX.writeFile(wb, `会议名单_${new Date().toLocaleDateString()}.xlsx`);
+        };
+
+        // --- 扫码核销 ---
         let scanner = null;
-        async function initScanner() {
-            if(typeof Html5Qrcode === 'undefined') return showToast("加载扫码组件失败");
+        async function startScanner() {
             scanner = new Html5Qrcode("reader");
             try {
-                await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, async (text) => {
-                    const feedback = document.getElementById('scan-feedback');
-                    feedback.innerText = "核验中: " + text;
-                    try {
-                        const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
-                        const q = await getDocs(colRef);
-                        let found = false;
-                        for (let d of q.docs) {
-                            if(d.data().phone === text) {
-                                found = true;
-                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', d.id), { status: '已签到' });
-                                feedback.innerHTML = `<span class="text-green-600">✅ 签到成功: ${d.data().name}</span>`;
-                                break;
+                await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, async (code) => {
+                    const resEl = document.getElementById('scan-res');
+                    resEl.innerHTML = `<span class="text-blue-500">正在核验: ${code}...</span>`;
+                    
+                    const col = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+                    const q = await getDocs(col);
+                    let found = false;
+                    for (let d of q.docs) {
+                        if(d.data()['手机号'] === code) {
+                            found = true;
+                            if(d.data()['状态'] === '已签到') {
+                                resEl.innerHTML = `<span class="text-amber-500">⚠ 已于此前签过到<br>${d.data()['姓名']}</span>`;
+                            } else {
+                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', d.id), { 状态: '已签到' });
+                                resEl.innerHTML = `<span class="text-green-600">✅ 签到成功！<br>欢迎，${d.data()['姓名']}</span>`;
                             }
+                            break;
                         }
-                        if(!found) feedback.innerHTML = `<span class="text-red-500">❌ 未找到手机号 ${text} 的报名记录</span>`;
-                    } catch (e) {
-                        feedback.innerHTML = `<span class="text-amber-500">连接数据库失败，无法验证</span>`;
                     }
+                    if(!found) resEl.innerHTML = `<span class="text-red-500">❌ 查无此人<br>手机号 ${code} 未报名</span>`;
                 });
             } catch (err) {
-                document.getElementById('scan-feedback').innerText = "请授权摄像头权限";
+                document.getElementById('scan-res').innerText = "启动相机失败，请检查摄像头权限";
             }
         }
+
         async function stopScanner() { if(scanner && scanner.isScanning) await scanner.stop(); }
 
-        window.exportData = () => {
-            if(masterData.length === 0) return alert("暂无导出数据");
-            const ws = XLSX.utils.json_to_sheet(masterData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "数据");
-            XLSX.writeFile(wb, "参会名单.xlsx");
-        };
-
-        function showToast(m) {
-            const t = document.getElementById('toast'); t.innerText = m; t.classList.remove('hidden');
-            setTimeout(() => t.classList.add('hidden'), 3000);
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            if (t) {
+                t.innerText = msg;
+                t.classList.remove('hidden');
+                setTimeout(() => t.classList.add('hidden'), 3000);
+            }
         }
 
-        start();
+        init();
     </script>
 </body>
 </html>
